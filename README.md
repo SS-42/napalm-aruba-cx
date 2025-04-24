@@ -31,18 +31,17 @@ The following software is required:
  - Python3
  - Pip
  - Python modules specified in `requirements.txt`
-    - pyaoscx v1.0.0
+    - pyaoscx ~v1.0.0~
     - requests
     - urllib3
    
-**Note that the current version of this driver utilizes pyaoscx v1 only.  Future versions of this driver will be 
-      compatible with pyaoscx v2**
+**Note that the original version of this driver utilizes pyaoscx v1 only. This version of this driver compatible with pyaoscx v2**.
 
 
 ## Installing
 To install simply run:
 ```
-pip3 install napalm-aruba-cx
+pip install git+https://github.com/SS-42/napalm-aruba-cx.git
 ```
 
 ### Switch configuration
