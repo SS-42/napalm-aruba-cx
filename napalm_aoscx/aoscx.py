@@ -64,10 +64,12 @@ from pyaoscx.bgp_router import BgpRouter
 class AOSCXDriver(NetworkDriver):
     """NAPALM driver for Aruba AOS-CX."""
 
-    def __init__(self, hostname, username, password, version, timeout=60, optional_args=None):
+    def __init__(self, hostname, username, password, version=None, timeout=60, optional_args=None):
         """NAPALM Constructor for AOS-CX."""
         if optional_args is None:
             optional_args = { 'use_cli': False }
+        if version is None:
+            version = optional_args.pop('version', '1')
         self.hostname = hostname
         self.username = username
         self.password = password
