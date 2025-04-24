@@ -448,73 +448,71 @@ class AOSCXDriver(NetworkDriver):
                  * available_ram (int) - Total amount of RAM installed in the device (Not Supported)
                  * used_ram (int) - RAM in use in the device
         """
-        fan_details = self._get_fan_info(**self.session_info)
-        fan_dict = {}
-        for fan in fan_details:
-            new_dict = {fan['name']: fan['status'] == 'ok'}
-            fan_dict.update(new_dict)
-
-        temp_details = self._get_temperature(**self.session_info)
-        temp_dict = {}
-        for sensor in temp_details:
-            new_dict = {
-                sensor['location']: {
-                    'temperature': float(sensor['temperature']/1000),
-                    'is_alert': sensor['status'] == 'critical',
-                    'is_critical': sensor['status'] == 'emergency'
-                }
-            }
-            temp_dict.update(new_dict)
-
-        psu_details = self._get_power_supplies(**self.session_info)
-        psu_dict = {}
-        for psu in psu_details:
-            new_dict = {
-                psu['name']: {
-                    'status': psu['status'] == 'ok',
-                    'capacity': float(psu['characteristics']['maximum_power']),
-                    'output': 'N/A'
-                }
-            }
-            psu_dict.update(new_dict)
-
-        resources_details = self._get_resource_utilization(**self.session_info)
-        cpu_dict = {}
-        mem_dict = {}
-        for mm in resources_details:
-            if 'cpu' not in mm['resource_utilization']:
-                cpu = 'N/A'
-            else:
-                cpu =  mm['resource_utilization']['cpu']
-
-            new_dict = {
-                mm['name']: {
-                    '%usage': cpu
-                }
-            }
-            cpu_dict.update(new_dict)
-
-            if 'memory' not in mm['resource_utilization']:
-               memory = 'N/A'
-            else:
-               memory = mm['resource_utilization']['memory']
-
-            new_dict = {
-                mm['name']: {
-                    'available_ram': 'N/A',
-                    'used_ram': memory
-                }
-            }
-            mem_dict.update(new_dict)
-
-        environment = {
-            'fans': fan_dict,
-            'temperature': temp_dict,
-            'power': psu_dict,
-            'cpu': cpu_dict,
-            'memory': mem_dict
+        
+        session_info = {
+            "s":      self.session.s,
+            "url":    self.base_url,
+            "verify": self.verify_ssl,
         }
-        return environment
+
+        fans_raw = self._get_fan_info(**session_info) or {}
+        fans = {
+            loc: {"status": info.get("status", "").lower() == "ok"}
+            for loc, info in fans_raw.items()
+        }
+
+        temps_raw = {}
+        try:
+            temps_raw = self._get_temperature(**session_info) or {}
+        except AttributeError:
+            pass
+
+        temperature = {}
+        for loc, info in temps_raw.items():
+            raw_temp = info.get("temperature")
+            celsius = float(raw_temp) / 1000 if raw_temp is not None else None
+            st = info.get("status", "").lower()
+            temperature[loc] = {
+                "temperature": celsius,
+                "is_alert":    (st == "critical"),
+                "is_critical": (st == "emergency"),
+            }
+
+        # 4) Power supplies: dict {psu_id: {...}, ...}
+        psu_raw = self._get_power_supplies(**session_info) or {}
+        power = {}
+        for psu_id, info in psu_raw.items():
+            power[psu_id] = {
+                "status":   info.get("status", "").lower() == "ok",
+                "capacity": float(info
+                                  .get("characteristics", {})
+                                  .get("maximum_power", 0)),
+                "output":   None,   # not support at the moment
+            }
+
+        res_raw = self._get_resource_utilization(**session_info) or {}
+        cpu = {}
+        cpu_val = res_raw.get("cpu")
+        if isinstance(cpu_val, list):
+            for idx, usage in enumerate(cpu_val):
+                cpu[str(idx)] = {"%usage": usage}
+        elif cpu_val is not None:
+            cpu["0"] = {"%usage": cpu_val}
+
+        mem_info = res_raw.get("memory", {}) or {}
+        memory = {
+            "available_ram": mem_info.get("total_memory"),
+            "used_ram":      mem_info.get("used_memory"),
+            "free_ram":      mem_info.get("free_memory"),
+        }
+
+        return {
+            "fans":        fans,
+            "temperature": temperature,
+            "power":       power,
+            "cpu":         cpu,
+            "memory":      memory,
+        }
 
     def get_interfaces_ip(self):
         """
