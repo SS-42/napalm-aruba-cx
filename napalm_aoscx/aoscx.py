@@ -28,7 +28,7 @@ from collections import defaultdict
 
 from netaddr import IPNetwork
 from netaddr.core import AddrFormatError
-from netmiko import FileTransfer, InLineTransfer
+from netmiko import FileTransfer, InLineTransfer, ConnectHandler
 
 # NAPALM Base libs
 import napalm.base.helpers
@@ -67,13 +67,18 @@ class AOSCXDriver(NetworkDriver):
     def __init__(self, hostname, username, password, version, timeout=60, optional_args=None):
         """NAPALM Constructor for AOS-CX."""
         if optional_args is None:
-            optional_args = {}
+            optional_args = { 'use_cli': False }
         self.hostname = hostname
         self.username = username
         self.password = password
         self.version = version
         self.timeout = timeout
+        self.optional_args = optional_args
 
+        self.verify_ssl = self.optional_args.get("verify_ssl", True)
+        if not self.verify_ssl:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         self.platform = "aoscx"
         self.profile = [self.platform]
         self.session = None
@@ -93,6 +98,30 @@ class AOSCXDriver(NetworkDriver):
         except ConnectionError as error:
             # Raised if device not available or HTTPS REST is not enabled
             raise ConnectionException(str(error))
+            
+        if self.optional_args['use_cli']:
+            device = {
+                'device_type':"aruba_os",
+                'ip':self.hostname,
+                'port':22,
+                'username':self.username,
+                'password':self.password,
+                'timeout':self.timeout,
+                'conn_timeout':self.timeout,
+                'verbose':False,
+            }
+            # device.update(self.optional_args)
+
+            try:
+                self.device = ConnectHandler(**device)
+                self.device.session_preparation()
+                self.device.send_command("", expect_string=r"#")
+                self.device.send_command("no page", expect_string=r"#")
+
+            except Exception:
+                raise ConnectionException(
+                    "Cannot connect to switch via SSH: %s" % (self.hostname)
+                )
 
     def close(self):
         """
@@ -926,6 +955,17 @@ class AOSCXDriver(NetworkDriver):
     #         associations_dict = response.json()
 
     #     return associations_dict
+
+    def _get_configuration(self, checkpoint="running-config", params={}, **kwargs):
+        """
+        Use CLI to get running config if use_cli optional argument is set. Otherwise use json config by default.
+        """
+
+        if self.optional_args['use_cli']:
+            configuration = self.device.send_command("show %s" % (checkpoint))
+            return configuration
+
+        return self._get_json_configuration(checkpoint, **kwargs)
 
 def get_vlans(self):
         """
