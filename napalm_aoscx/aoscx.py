@@ -428,93 +428,93 @@ class AOSCXDriver(NetworkDriver):
                 )
         return lldp_details_return
 
-    # def get_environment(self):
-    #     """
-    #     Implementation of NAPALM method get_environment()
-    #     :return: Returns a dictionary where:
-    #         * fans is a dictionary of dictionaries where the key is the location and the values:
-    #              * status (True/False) - True if it's ok, false if it's broken
-    #         * temperature is a dict of dictionaries where the key is the location and the values:
-    #              * temperature (float) - Temperature in celsius the sensor is reporting.
-    #              * is_alert (True/False) - True if the temperature is above the alert threshold
-    #              * is_critical (True/False) - True if the temp is above the critical threshold
-    #         * power is a dictionary of dictionaries where the key is the PSU id and the values:
-    #              * status (True/False) - True if it's ok, false if it's broken
-    #              * capacity (float) - Capacity in W that the power supply can support
-    #              * output (float) - Watts drawn by the system (Not Supported)
-    #         * cpu is a dictionary of dictionaries where the key is the ID and the values:
-    #              * %usage - Current percent usage of the device
-    #         * memory is a dictionary with:
-    #              * available_ram (int) - Total amount of RAM installed in the device (Not Supported)
-    #              * used_ram (int) - RAM in use in the device
-    #     """
-    #     fan_details = self._get_fan_info(**self.session_info)
-    #     fan_dict = {}
-    #     for fan in fan_details:
-    #         new_dict = {fan['name']: fan['status'] == 'ok'}
-    #         fan_dict.update(new_dict)
+    def get_environment(self):
+        """
+        Implementation of NAPALM method get_environment()
+        :return: Returns a dictionary where:
+            * fans is a dictionary of dictionaries where the key is the location and the values:
+                 * status (True/False) - True if it's ok, false if it's broken
+            * temperature is a dict of dictionaries where the key is the location and the values:
+                 * temperature (float) - Temperature in celsius the sensor is reporting.
+                 * is_alert (True/False) - True if the temperature is above the alert threshold
+                 * is_critical (True/False) - True if the temp is above the critical threshold
+            * power is a dictionary of dictionaries where the key is the PSU id and the values:
+                 * status (True/False) - True if it's ok, false if it's broken
+                 * capacity (float) - Capacity in W that the power supply can support
+                 * output (float) - Watts drawn by the system (Not Supported)
+            * cpu is a dictionary of dictionaries where the key is the ID and the values:
+                 * %usage - Current percent usage of the device
+            * memory is a dictionary with:
+                 * available_ram (int) - Total amount of RAM installed in the device (Not Supported)
+                 * used_ram (int) - RAM in use in the device
+        """
+        fan_details = self._get_fan_info(**self.session_info)
+        fan_dict = {}
+        for fan in fan_details:
+            new_dict = {fan['name']: fan['status'] == 'ok'}
+            fan_dict.update(new_dict)
 
-    #     temp_details = self._get_temperature(**self.session_info)
-    #     temp_dict = {}
-    #     for sensor in temp_details:
-    #         new_dict = {
-    #             sensor['location']: {
-    #                 'temperature': float(sensor['temperature']/1000),
-    #                 'is_alert': sensor['status'] == 'critical',
-    #                 'is_critical': sensor['status'] == 'emergency'
-    #             }
-    #         }
-    #         temp_dict.update(new_dict)
+        temp_details = self._get_temperature(**self.session_info)
+        temp_dict = {}
+        for sensor in temp_details:
+            new_dict = {
+                sensor['location']: {
+                    'temperature': float(sensor['temperature']/1000),
+                    'is_alert': sensor['status'] == 'critical',
+                    'is_critical': sensor['status'] == 'emergency'
+                }
+            }
+            temp_dict.update(new_dict)
 
-    #     psu_details = self._get_power_supplies(**self.session_info)
-    #     psu_dict = {}
-    #     for psu in psu_details:
-    #         new_dict = {
-    #             psu['name']: {
-    #                 'status': psu['status'] == 'ok',
-    #                 'capacity': float(psu['characteristics']['maximum_power']),
-    #                 'output': 'N/A'
-    #             }
-    #         }
-    #         psu_dict.update(new_dict)
+        psu_details = self._get_power_supplies(**self.session_info)
+        psu_dict = {}
+        for psu in psu_details:
+            new_dict = {
+                psu['name']: {
+                    'status': psu['status'] == 'ok',
+                    'capacity': float(psu['characteristics']['maximum_power']),
+                    'output': 'N/A'
+                }
+            }
+            psu_dict.update(new_dict)
 
-    #     resources_details = self._get_resource_utilization(**self.session_info)
-    #     cpu_dict = {}
-    #     mem_dict = {}
-    #     for mm in resources_details:
-    #         if 'cpu' not in mm['resource_utilization']:
-    #             cpu = 'N/A'
-    #         else:
-    #             cpu =  mm['resource_utilization']['cpu']
+        resources_details = self._get_resource_utilization(**self.session_info)
+        cpu_dict = {}
+        mem_dict = {}
+        for mm in resources_details:
+            if 'cpu' not in mm['resource_utilization']:
+                cpu = 'N/A'
+            else:
+                cpu =  mm['resource_utilization']['cpu']
 
-    #         new_dict = {
-    #             mm['name']: {
-    #                 '%usage': cpu
-    #             }
-    #         }
-    #         cpu_dict.update(new_dict)
+            new_dict = {
+                mm['name']: {
+                    '%usage': cpu
+                }
+            }
+            cpu_dict.update(new_dict)
 
-    #         if 'memory' not in mm['resource_utilization']:
-    #            memory = 'N/A'
-    #         else:
-    #            memory = mm['resource_utilization']['memory']
+            if 'memory' not in mm['resource_utilization']:
+               memory = 'N/A'
+            else:
+               memory = mm['resource_utilization']['memory']
 
-    #         new_dict = {
-    #             mm['name']: {
-    #                 'available_ram': 'N/A',
-    #                 'used_ram': memory
-    #             }
-    #         }
-    #         mem_dict.update(new_dict)
+            new_dict = {
+                mm['name']: {
+                    'available_ram': 'N/A',
+                    'used_ram': memory
+                }
+            }
+            mem_dict.update(new_dict)
 
-    #     environment = {
-    #         'fans': fan_dict,
-    #         'temperature': temp_dict,
-    #         'power': psu_dict,
-    #         'cpu': cpu_dict,
-    #         'memory': mem_dict
-    #     }
-    #     return environment
+        environment = {
+            'fans': fan_dict,
+            'temperature': temp_dict,
+            'power': psu_dict,
+            'cpu': cpu_dict,
+            'memory': mem_dict
+        }
+        return environment
 
     def get_interfaces_ip(self):
         """
