@@ -13,6 +13,9 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
+import urllib.parse
+from napalm.base.exceptions import CommandErrorException
+
 import copy
 import functools
 import os
@@ -664,10 +667,23 @@ class AOSCXDriver(NetworkDriver):
     #     """
     #     return self._get_ntp_associations(**self.session_info)
 
+    def _get_cli(self, command: str) -> str:
+        """
+        Execute a CLI command over the REST CLI endpoint and return raw text.
+        """
+        # build URL: e.g. https://host/rest/v10/system/cli?command=show%20running-config
+        url = self.base_url + "system/cli?command=" + urllib.parse.quote(command, safe="")
+        # request plain text
+        headers = {"Accept": "text/plain"}
+        resp = self.session.s.get(url, headers=headers, verify=self.verify_ssl, timeout=self.timeout)
+        if not resp.ok:
+            raise CommandErrorException(f"Failed to run `{command}` over REST CLI: {resp.status_code} {resp.text}")
+        return resp.text
+
     def get_config(self, retrieve="all", full=False, sanitized=False):
         """
-        Return the configuration via CLI или REST.
-        :param retrieve: "running", "startup", "candidate" или "all"
+        Return the configuration via CLI (SSH) or REST (text).
+        :param retrieve: "running", "startup", "candidate" or "all"
         """
         if retrieve not in ("running", "startup", "candidate", "all"):
             raise ValueError(
@@ -680,38 +696,20 @@ class AOSCXDriver(NetworkDriver):
         candidate_config = ""
 
         if self.optional_args.get("use_cli"):
-            # CLI over ssh
+            # existing SSH path
+            # ensure paging is off
             self.device.send_command("no page", strip_prompt=False, strip_command=False)
             if retrieve in ("running", "all"):
                 running_config = self._get_configuration("show running-config")
             if retrieve in ("startup", "all"):
                 startup_config = self._get_configuration("show startup-config")
+
         else:
-            # REST API: CLI
-            requests_session = self.session.s
-            base = self.base_url.rstrip("/") + "/fullconfigs/"
-
+            # REST-CLI path: return exactly the same text as SSH would
             if retrieve in ("running", "all"):
-                url = f"{base}running-config?download=true"
-                resp = requests_session.get(
-                    url,
-                    headers={"Accept": "text/plain"},
-                    verify=self.verify_ssl,
-                    timeout=self.timeout,
-                )
-                resp.raise_for_status()
-                running_config = "show running-config\n" + resp.text
-
+                running_config = self._get_cli("show running-config")
             if retrieve in ("startup", "all"):
-                url = f"{base}startup-config?download=true"
-                resp = requests_session.get(
-                    url,
-                    headers={"Accept": "text/plain"},
-                    verify=self.verify_ssl,
-                    timeout=self.timeout,
-                )
-                resp.raise_for_status()
-                startup_config = "show startup-config\n" + resp.text
+                startup_config = self._get_cli("show startup-config")
 
         return {
             "running": running_config,
