@@ -122,7 +122,7 @@ class AOSCXDriver(NetworkDriver):
                 self.device = ConnectHandler(**device)
                 self.device.session_preparation()
                 self.device.send_command("", expect_string=r"#")
-                self.device.send_command("no page", expect_string=r"#")
+                self.device.send_command("no page", expect_string=None, strip_prompt=False, strip_command=False)
 
             except Exception:
                 raise ConnectionException(
