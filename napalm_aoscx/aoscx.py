@@ -957,11 +957,13 @@ class AOSCXDriver(NetworkDriver):
             return self.device.send_command(
                 "show %s" % (checkpoint),
                 expect_string=r"#",
-                delay_factor=2,
+                delay_factor=3,
                 strip_prompt=True,
-                strip_command=True
+                strip_command=True,
+                cmd_verify=False,
+                read_timeout=60
             )
-    
+
         config = Configuration(self.session)
         if checkpoint == "running-config":
             return config.get_full_config()
