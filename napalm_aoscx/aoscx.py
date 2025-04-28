@@ -13,9 +13,6 @@
 # License for the specific language governing permissions and limitations under
 # the License.
 
-import urllib.parse
-from napalm.base.exceptions import CommandErrorException
-
 import copy
 import functools
 import os
@@ -667,22 +664,9 @@ class AOSCXDriver(NetworkDriver):
     #     """
     #     return self._get_ntp_associations(**self.session_info)
 
-    def _get_cli(self, command: str) -> str:
-        """
-        Execute a CLI command over the REST CLI endpoint and return raw text.
-        """
-        # build URL: e.g. https://host/rest/v10/system/cli?command=show%20running-config
-        url = self.base_url + "system/cli?command=" + urllib.parse.quote(command, safe="")
-        # request plain text
-        headers = {"Accept": "text/plain"}
-        resp = self.session.s.get(url, headers=headers, verify=self.verify_ssl, timeout=self.timeout)
-        if not resp.ok:
-            raise CommandErrorException(f"Failed to run `{command}` over REST CLI: {resp.status_code} {resp.text}")
-        return resp.text
-
     def get_config(self, retrieve="all", full=False, sanitized=False):
         """
-        Return the configuration via CLI (SSH) or REST (text).
+        Return the configuration via CLI или REST.
         :param retrieve: "running", "startup", "candidate" or "all"
         """
         if retrieve not in ("running", "startup", "candidate", "all"):
@@ -696,20 +680,23 @@ class AOSCXDriver(NetworkDriver):
         candidate_config = ""
 
         if self.optional_args.get("use_cli"):
-            # existing SSH path
-            # ensure paging is off
             self.device.send_command("no page", strip_prompt=False, strip_command=False)
+
             if retrieve in ("running", "all"):
                 running_config = self._get_configuration("show running-config")
             if retrieve in ("startup", "all"):
-                startup_config = self._get_configuration("show startup-config")
+                pass
+                # startup_config = self._get_configuration("show startup-config")
 
         else:
-            # REST-CLI path: return exactly the same text as SSH would
+            # REST API
+            cfg = Configuration(self.session)
             if retrieve in ("running", "all"):
-                running_config = self._get_cli("show running-config")
+                raw = cfg.get_full_config()
+                running_config = "show running-config\n" + raw
             if retrieve in ("startup", "all"):
-                startup_config = self._get_cli("show startup-config")
+                raw = cfg.get_full_config(config_name="startup-config")
+                startup_config = "show startup-config\n" + raw
 
         return {
             "running": running_config,
@@ -974,8 +961,8 @@ class AOSCXDriver(NetworkDriver):
         Using SSH get `show running-config` or `show startup-config`,
         disable paging and echo from command/prompts.
         """
-        prompt = self.device.find_prompt().strip()
-        prompt_re = re.escape(prompt)
+        base = self.device.base_prompt  # device name
+        prompt_re = re.escape(base) + r"[#>]\s*$"
 
         return self.device.send_command(
             command,
