@@ -61,9 +61,9 @@ from pyaoscx.lldp_neighbor import LLDPNeighbor
 from pyaoscx.bgp_neighbor import BgpNeighbor
 from pyaoscx.bgp_router import BgpRouter
 
-import threading
+from threading import Lock
 
-_device_cli_lock = threading.Lock()
+_device_cli_lock = Lock()
 
 class AOSCXDriver(NetworkDriver):
     """NAPALM driver for Aruba AOS-CX."""
@@ -666,43 +666,37 @@ class AOSCXDriver(NetworkDriver):
 
     def get_config(self, retrieve="all", full=False, sanitized=False):
         """
-        Return the configuration of a device.
-        If use_cli is enabled, get configuration via CLI.
-        Otherwise use REST API.
-    
-        :param retrieve: Which configuration to retrieve: running, startup, candidate, or all.
-        :param full: Not used.
-        :param sanitized: Not used.
-        :return: Dictionary with keys 'running', 'startup', and 'candidate'.
+        Return the configuration of a device via CLI or REST.
+        :param retrieve: "running", "startup", "candidate" or "all"
         """
-        if retrieve not in ["running", "candidate", "startup", "all"]:
-            raise Exception("ERROR: Not a valid option to retrieve.\nPlease select from 'running', 'candidate', 'startup', or 'all'.")
-    
-        running_config = ""
-        startup_config = ""
-        candidate_config = ""
-    
-        # Use CLI if enabled
-        if self.optional_args.get('use_cli'):
-            if retrieve in ["running", "all"]:
-                running_config = self._get_configuration(checkpoint="running-config")
-            if retrieve in ["startup", "all"]:
-                startup_config = self._get_configuration(checkpoint="startup-config")
-        else:
-            # Use REST API if CLI is not enabled
-            config = Configuration(self.session)
-            if retrieve in ["running", "all"]:
-                running_config = config.get_full_config()
-            if retrieve in ["startup", "all"]:
-                startup_config = config.get_full_config(config_name="startup-config")
-    
-        config_dict = {
+        if retrieve not in ("running", "startup", "candidate", "all"):
+            raise Exception(
+                "ERROR: Not a valid option to retrieve.\n"
+                "Please select from 'running', 'candidate', 'startup', or 'all'."
+            )
+
+        with _device_cli_lock:
+            running_config = ""
+            startup_config = ""
+            candidate_config = ""
+
+            if self.optional_args.get("use_cli"):
+                if retrieve in ("running", "startup", "all"):
+                    running_config = self._get_configuration("running-config")
+                if retrieve in ("startup", "all"):
+                    startup_config = self._get_configuration("startup-config")
+            else:
+                cfg = Configuration(self.session)
+                if retrieve in ("running", "startup", "all"):
+                    running_config = cfg.get_full_config()
+                if retrieve in ("startup", "all"):
+                    startup_config = cfg.get_full_config(config_name="startup-config")
+
+        return {
             "running": running_config,
             "startup": startup_config,
-            "candidate": candidate_config
+            "candidate": candidate_config,
         }
-    
-        return config_dict
 
     # def ping(self, destination, source=c.PING_SOURCE, ttl=c.PING_TTL, timeout=c.PING_TIMEOUT, size=c.PING_SIZE,
     #          count=c.PING_COUNT, vrf=c.PING_VRF):
@@ -957,28 +951,24 @@ class AOSCXDriver(NetworkDriver):
     #     return associations_dict
 
     def _get_configuration(self, checkpoint="running-config", params={}, **kwargs):
-        if self.optional_args['use_cli']:
-            with _device_cli_lock:
-                self.device.clear_buffer()
-
-                prompt = self.device.find_prompt().strip()
-                prompt_regex = re.escape(prompt)
-
-                return self.device.send_command(
-                    f"show {checkpoint}",
-                    expect_string=prompt_regex,
-                    delay_factor=2,
-                    strip_prompt=True,
-                    strip_command=True,
-                    cmd_verify=False,
-                    read_timeout=60
-                )
-
-        config = Configuration(self.session)
+        if self.optional_args.get("use_cli"):
+            self.device.clear_buffer()
+            prompt = self.device.find_prompt().strip()
+            prompt_re = re.escape(prompt)
+            return self.device.send_command(
+                f"show {checkpoint}",
+                expect_string=prompt_re,
+                delay_factor=2,
+                strip_prompt=True,
+                strip_command=True,
+                cmd_verify=False,
+                read_timeout=self.timeout,
+            )
+        cfg = Configuration(self.session)
         if checkpoint == "running-config":
-            return config.get_full_config()
+            return cfg.get_full_config()
         elif checkpoint == "startup-config":
-            return config.get_full_config(config_name="startup-config")
+            return cfg.get_full_config(config_name="startup-config")
         else:
             raise ValueError(f"Unsupported checkpoint {checkpoint}")
 
