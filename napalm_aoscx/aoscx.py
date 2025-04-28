@@ -93,6 +93,10 @@ class AOSCXDriver(NetworkDriver):
         """
         Implementation of NAPALM method 'open' to open a connection to the device.
         """
+        import logging
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+        logging.getLogger("netmiko").setLevel(logging.DEBUG)
+
         try:
             self.session = Session(self.hostname, self.version)
             self.session.open(self.username, self.password)
