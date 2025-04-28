@@ -61,6 +61,10 @@ from pyaoscx.lldp_neighbor import LLDPNeighbor
 from pyaoscx.bgp_neighbor import BgpNeighbor
 from pyaoscx.bgp_router import BgpRouter
 
+import threading
+
+_device_cli_lock = threading.Lock()
+
 class AOSCXDriver(NetworkDriver):
     """NAPALM driver for Aruba AOS-CX."""
 
@@ -93,7 +97,6 @@ class AOSCXDriver(NetworkDriver):
         """
         Implementation of NAPALM method 'open' to open a connection to the device.
         """
-        import logging
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
         logging.getLogger("netmiko").setLevel(logging.DEBUG)
 
@@ -312,7 +315,7 @@ class AOSCXDriver(NetworkDriver):
                 intf_counter['rx_multicast_packets'] = interface_details['statistics']['if_in_multicast_packets']
 
             if 'if_out_broadcast_packets' in interface_details['statistics']:
-                intf_counter['rx_bytes'] = interface_details['statistics']['if_out_broadcast_packets']
+                intf_counter['tx_broadcast_packets'] = interface_details['statistics']['if_out_broadcast_packets']
 
             if 'if_in_broadcast_packets' in interface_details['statistics']:
                 intf_counter['rx_broadcast_packets'] = interface_details['statistics']['if_in_broadcast_packets']
@@ -398,6 +401,7 @@ class AOSCXDriver(NetworkDriver):
         lldp_interfaces = []
         lldp_details_return = {}
         if interface:
+            lldp_interfaces_list = LLDPNeighbor.get_facts(self.session)
             lldp_interfaces.append(interface)
         else:
             lldp_interfaces_list = LLDPNeighbor.get_facts(self.session)
@@ -954,15 +958,16 @@ class AOSCXDriver(NetworkDriver):
 
     def _get_configuration(self, checkpoint="running-config", params={}, **kwargs):
         if self.optional_args['use_cli']:
-            return self.device.send_command(
-                "show %s" % (checkpoint),
-                expect_string=r"#",
-                delay_factor=3,
-                strip_prompt=True,
-                strip_command=True,
-                cmd_verify=False,
-                read_timeout=60
-            )
+            with _device_cli_lock:
+                return self.device.send_command(
+                    "show %s" % (checkpoint),
+                    expect_string=r"#",
+                    delay_factor=2,
+                    strip_prompt=True,
+                    strip_command=True,
+                    cmd_verify=False,
+                    read_timeout=60
+                )
 
         config = Configuration(self.session)
         if checkpoint == "running-config":
