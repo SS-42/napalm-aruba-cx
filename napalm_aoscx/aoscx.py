@@ -974,7 +974,6 @@ class AOSCXDriver(NetworkDriver):
                     read_timeout=60
                 )
 
-        # REST-ветка остаётся без изменений
         config = Configuration(self.session)
         if checkpoint == "running-config":
             return config.get_full_config()
