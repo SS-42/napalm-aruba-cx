@@ -687,16 +687,15 @@ class AOSCXDriver(NetworkDriver):
             if retrieve in ("startup", "all"):
                 pass
                 # startup_config = self._get_configuration("show startup-config")
-
         else:
             # REST API
             cfg = Configuration(self.session)
             if retrieve in ("running", "all"):
                 raw = cfg.get_full_config()
-                running_config = "show running-config\n" + raw
+                running_config = self._format_config(raw)
             if retrieve in ("startup", "all"):
                 raw = cfg.get_full_config(config_name="startup-config")
-                startup_config = "show startup-config\n" + raw
+                startup_config = self._format_config(raw)
 
         return {
             "running": running_config,
@@ -1012,3 +1011,172 @@ class AOSCXDriver(NetworkDriver):
                         vlan_json[id]['interfaces'].append(interface)
                         
             return vlan_json
+
+    def _format_config(self, config_dict):
+        """
+        Converts REST config dict into a readable CLI-like config string.
+        """
+        lines = []
+
+        lines.append('Current configuration:')
+        lines.append('!')
+
+        # Version
+        if "software_info" in config_dict.get("system", {}):
+            version = config_dict["system"]["software_info"].get("version")
+            if version:
+                lines.append(f"!Version ArubaOS-CX {version}")
+
+        # Hostname
+        system = config_dict.get('system', {})
+        hostname = system.get('hostname')
+        if hostname:
+            lines.append(f'hostname {hostname}')
+
+        # Banner MOTD
+        if 'banner' in system:
+            motd = system['banner'].get('banner_motd')
+            if motd:
+                lines.append('banner motd #')
+                lines.extend(motd.splitlines())
+                lines.append('#')
+
+        # Users
+        if 'user' in config_dict:
+            for username, data in config_dict['user'].items():
+                line = f'user {username} group {data.get("group", "administrators")}'
+                if 'password' in data:
+                    line += f' password ciphertext {data["password"]}'
+                lines.append(line)
+
+        # Timezone
+        if 'clock' in config_dict:
+            timezone = config_dict['clock'].get('timezone')
+            if timezone:
+                lines.append(f'clock timezone {timezone}')
+
+        # Radius tracking user
+        if 'radius_tracking' in config_dict:
+            tracking = config_dict['radius_tracking']
+            username = tracking.get('username')
+            password = tracking.get('password')
+            if username and password:
+                lines.append(f'radius-server tracking user-name {username} password ciphertext {password}')
+
+        # Radius servers
+        if 'radius_server' in config_dict:
+            for server_ip, data in config_dict['radius_server'].items():
+                line = f'radius-server host {server_ip}'
+                if 'key' in data:
+                    line += f' key ciphertext {data["key"]}'
+                lines.append(line)
+
+        # TACACS servers
+        if 'tacacs_server' in config_dict:
+            for server_ip, data in config_dict['tacacs_server'].items():
+                line = f'tacacs-server host {server_ip}'
+                if 'key' in data:
+                    line += f' key ciphertext {data["key"]}'
+                lines.append(line)
+
+        # AAA Groups
+        if 'aaa' in config_dict:
+            aaa = config_dict['aaa']
+            if 'groups' in aaa:
+                for group_name, group_data in aaa['groups'].items():
+                    lines.append(f'aaa group server tacacs {group_name}')
+                    for server_ip in group_data.get('servers', []):
+                        lines.append(f'    server {server_ip}')
+
+            # AAA Authentication
+            if 'authentication' in aaa:
+                for service, methods in aaa['authentication'].items():
+                    line = f'aaa authentication login {service}'
+                    for method in methods:
+                        line += f' group {method}'
+                    lines.append(line)
+
+        # Radius dyn-authorization
+        if system.get('radius_dyn_authorization', False):
+            lines.append('radius dyn-authorization enable')
+
+        # Management servers
+        if system.get('ssh_server', False):
+            lines.append('ssh server vrf default')
+        if system.get('https_server', False):
+            lines.append('https-server vrf default')
+        if system.get('snmp_server', False):
+            lines.append('snmp-server vrf default')
+
+        # VLANs
+        if 'vlans' in config_dict:
+            for vlan_id, vlan_data in config_dict['vlans'].items():
+                lines.append(f'vlan {vlan_id}')
+                if 'name' in vlan_data:
+                    lines.append(f'    name {vlan_data["name"]}')
+
+        # Spanning-tree
+        if system.get('spanning_tree', {}).get('enabled', True) == False:
+            lines.append('no spanning-tree')
+
+        # Interfaces
+        if 'interface' in config_dict:
+            for if_name, if_data in config_dict['interface'].items():
+                lines.append(f'interface {if_name}')
+                if 'description' in if_data:
+                    lines.append(f'    description {if_data["description"]}')
+                if if_data.get('admin', 'down') == 'up':
+                    lines.append('    no shutdown')
+                else:
+                    lines.append('    shutdown')
+
+                # VLAN settings
+                if 'vlan' in if_data:
+                    lines.append(f'    vlan access {if_data["vlan"]}')
+                if 'vlan_trunk' in if_data:
+                    lines.append(f'    vlan trunk allowed {if_data["vlan_trunk"]}')
+                if 'native_vlan' in if_data:
+                    lines.append(f'    vlan trunk native {if_data["native_vlan"]}')
+
+                # LACP
+                if 'lag' in if_data:
+                    lines.append(f'    lag {if_data["lag"]["id"]}')
+                    if if_data["lag"].get('mode') == 'passive':
+                        lines.append(f'    lacp mode passive')
+                    elif if_data["lag"].get('mode') == 'active':
+                        lines.append(f'    lacp mode active')
+
+                # IP address
+                if 'ip4_address' in if_data:
+                    lines.append(f'    ip address {if_data["ip4_address"]}')
+                if 'ip6_address' in if_data:
+                    lines.append(f'    ipv6 address {if_data["ip6_address"]}')
+
+                # Loop protect
+                if if_data.get('loop_protect', False):
+                    lines.append(f'    loop-protect')
+
+                # Port-access authentication
+                if 'port_access' in if_data:
+                    port_access = if_data['port_access']
+                    if port_access.get('auth_precedence'):
+                        lines.append('    aaa authentication port-access auth-precedence mac-auth dot1x')
+                    if port_access.get('client_limit'):
+                        lines.append(f'    aaa authentication port-access client-limit {port_access["client_limit"]}')
+                    if port_access.get('mac_auth', {}).get('enabled', False):
+                        lines.append(f'    aaa authentication port-access mac-auth')
+                        lines.append(f'        enable')
+                    if port_access.get('dot1x', {}).get('enabled', False):
+                        lines.append(f'    aaa authentication port-access dot1x')
+                        lines.append(f'        enable')
+
+        # Static routes
+        if 'routes' in config_dict:
+            for route in config_dict['routes']:
+                destination = route['destination']
+                next_hop = route['next_hop']
+                lines.append(f'ip route {destination} {next_hop}')
+
+        lines.append('!')
+
+        return '\n'.join(lines) + '\n'
