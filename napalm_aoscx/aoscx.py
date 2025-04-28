@@ -960,8 +960,8 @@ class AOSCXDriver(NetworkDriver):
         Using SSH get `show running-config` or `show startup-config`,
         disable paging and echo from command/prompts.
         """
-        prompt = self.device.find_prompt().strip()
-        prompt_re = re.escape(prompt)
+        base = self.device.base_prompt  # device name
+        prompt_re = re.escape(base) + r"[#>]\s*$"
 
         return self.device.send_command(
             command,
