@@ -97,6 +97,10 @@ class AOSCXDriver(NetworkDriver):
             self.session = Session(self.hostname, self.version)
             self.session.open(self.username, self.password)
             self.isAlive = True
+            self.session_info = {
+                "s": self.session.s,
+                "url": self.base_url
+            }
         except ConnectionError as error:
             # Raised if device not available or HTTPS REST is not enabled
             raise ConnectionException(str(error))
@@ -656,41 +660,43 @@ class AOSCXDriver(NetworkDriver):
 
     def get_config(self, retrieve="all", full=False, sanitized=False):
         """
-        Return the configuration of a device. Currently this is limited to JSON format
-
-        :param retrieve: String to determine which configuration type you want to retrieve, default is all of them.
-                              The rest will be set to "".
-        :param full: Boolean to retrieve all the configuration. (Not supported)
-        :param sanitized: Boolean to retrieve a sanitized version of the configuration. (Not supported)
-        :return: The object returned is a dictionary with a key for each configuration store:
-            - running(string) - Representation of the native running configuration
-            - candidate(string) - Representation of the candidate configuration.
-            - startup(string) - Representation of the native startup configuration.
+        Return the configuration of a device.
+        If use_cli is enabled, get configuration via CLI.
+        Otherwise use REST API.
+    
+        :param retrieve: Which configuration to retrieve: running, startup, candidate, or all.
+        :param full: Not used.
+        :param sanitized: Not used.
+        :return: Dictionary with keys 'running', 'startup', and 'candidate'.
         """
         if retrieve not in ["running", "candidate", "startup", "all"]:
-            raise Exception("ERROR: Not a valid option to retrieve.\nPlease select from 'running', 'candidate', "
-                            "'startup', or 'all'")
+            raise Exception("ERROR: Not a valid option to retrieve.\nPlease select from 'running', 'candidate', 'startup', or 'all'.")
+    
+        running_config = ""
+        startup_config = ""
+        candidate_config = ""
+    
+        # Use CLI if enabled
+        if self.optional_args.get('use_cli'):
+            if retrieve in ["running", "all"]:
+                running_config = self._get_configuration(checkpoint="running-config")
+            if retrieve in ["startup", "all"]:
+                startup_config = self._get_configuration(checkpoint="startup-config")
         else:
+            # Use REST API if CLI is not enabled
             config = Configuration(self.session)
-            running_config = ""
-            startup_config = ""
-            
-            if retrieve == "running":
+            if retrieve in ["running", "all"]:
                 running_config = config.get_full_config()
-            elif retrieve == "startup":
+            if retrieve in ["startup", "all"]:
                 startup_config = config.get_full_config(config_name="startup-config")
-            elif retrieve == "all":
-                running_config = config.get_full_config()
-                startup_config = config.get_full_config(config_name="startup-config")
-            
-            config_dict = {
-                "running": running_config,
-                "startup": startup_config,
-                "candidate": ""
-            }
-
+    
+        config_dict = {
+            "running": running_config,
+            "startup": startup_config,
+            "candidate": candidate_config
+        }
+    
         return config_dict
-
 
     # def ping(self, destination, source=c.PING_SOURCE, ttl=c.PING_TTL, timeout=c.PING_TIMEOUT, size=c.PING_SIZE,
     #          count=c.PING_COUNT, vrf=c.PING_VRF):
@@ -945,51 +951,52 @@ class AOSCXDriver(NetworkDriver):
     #     return associations_dict
 
     def _get_configuration(self, checkpoint="running-config", params={}, **kwargs):
-        """
-        Use CLI to get running config if use_cli optional argument is set. Otherwise use json config by default.
-        """
-
         if self.optional_args['use_cli']:
-            configuration = self.device.send_command("show %s" % (checkpoint))
-            return configuration
+            return self.device.send_command("show %s" % (checkpoint))
+    
+        config = Configuration(self.session)
+        if checkpoint == "running-config":
+            return config.get_full_config()
+        elif checkpoint == "startup-config":
+            return config.get_full_config(config_name="startup-config")
+        else:
+            raise ValueError(f"Unsupported checkpoint {checkpoint}")
 
-        return self._get_json_configuration(checkpoint, **kwargs)
-
-def get_vlans(self):
-        """
-        Implementation of NAPALM method 'get_vlans'. This is used to retrieve all vlan
-        information. 
-
-        :return: Returns a dictionary of dictionaries. The keys for the first dictionary will be the
-        vlan_id of the vlan. The inner dictionary will containing the following data for
-        each vlan:
-         * name (text_type)
-         * interfaces (list)
-        """
-        
-        vlan_json = {}
-        vlan_list = Vlan.get_facts(self.session)
-        
-        for vlan_id in vlan_list:
-            vlan_json[int(vlan_id)] = {
-                "name": vlan_list[vlan_id]['name'],
-                "interfaces": []
-            }
+    def get_vlans(self):
+            """
+            Implementation of NAPALM method 'get_vlans'. This is used to retrieve all vlan
+            information. 
+    
+            :return: Returns a dictionary of dictionaries. The keys for the first dictionary will be the
+            vlan_id of the vlan. The inner dictionary will containing the following data for
+            each vlan:
+             * name (text_type)
+             * interfaces (list)
+            """
             
-        interface_list = Interface.get_facts(self.session)
-        physical_interface_list = {key: value for key, value in interface_list.items() if '/' in key}
-        
-        for interface in physical_interface_list:
-            interface_facts = interface_list[interface]
-            vlan_ids = []
-            key = ""
-            if 'applied_vlan_trunks' in interface_facts and interface_facts['applied_vlan_trunks'] and (len(interface_facts['applied_vlan_trunks']) > 0):
-                key = 'applied_vlan_trunks'
-            elif 'applied_vlan_tag' in interface_facts and interface_facts['applied_vlan_tag'] and (len(interface_facts['applied_vlan_tag']) > 0):
-                key = 'applied_vlan_tag'
-            if key != "":
-                vlan_ids = [int(key) for key in interface_facts[key]]
-                for id in vlan_ids:
-                    vlan_json[id]['interfaces'].append(interface)
-                    
-        return vlan_json
+            vlan_json = {}
+            vlan_list = Vlan.get_facts(self.session)
+            
+            for vlan_id in vlan_list:
+                vlan_json[int(vlan_id)] = {
+                    "name": vlan_list[vlan_id]['name'],
+                    "interfaces": []
+                }
+                
+            interface_list = Interface.get_facts(self.session)
+            physical_interface_list = {key: value for key, value in interface_list.items() if '/' in key}
+            
+            for interface in physical_interface_list:
+                interface_facts = interface_list[interface]
+                vlan_ids = []
+                key = ""
+                if 'applied_vlan_trunks' in interface_facts and interface_facts['applied_vlan_trunks'] and (len(interface_facts['applied_vlan_trunks']) > 0):
+                    key = 'applied_vlan_trunks'
+                elif 'applied_vlan_tag' in interface_facts and interface_facts['applied_vlan_tag'] and (len(interface_facts['applied_vlan_tag']) > 0):
+                    key = 'applied_vlan_tag'
+                if key != "":
+                    vlan_ids = [int(key) for key in interface_facts[key]]
+                    for id in vlan_ids:
+                        vlan_json[id]['interfaces'].append(interface)
+                        
+            return vlan_json
