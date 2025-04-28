@@ -954,7 +954,13 @@ class AOSCXDriver(NetworkDriver):
 
     def _get_configuration(self, checkpoint="running-config", params={}, **kwargs):
         if self.optional_args['use_cli']:
-            return self.device.send_command("show %s" % (checkpoint))
+            return self.device.send_command(
+                "show %s" % (checkpoint),
+                expect_string=r"#",
+                delay_factor=2,
+                strip_prompt=True,
+                strip_command=True
+            )
     
         config = Configuration(self.session)
         if checkpoint == "running-config":
