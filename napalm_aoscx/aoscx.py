@@ -666,12 +666,12 @@ class AOSCXDriver(NetworkDriver):
 
     def get_config(self, retrieve="all", full=False, sanitized=False):
         """
-        Return the configuration of a device via CLI or REST.
+        Return the configuration via CLI или REST.
         :param retrieve: "running", "startup", "candidate" or "all"
         """
         if retrieve not in ("running", "startup", "candidate", "all"):
-            raise Exception(
-                "ERROR: Not a valid option to retrieve.\n"
+            raise ValueError(
+                "ERROR: Not a valid option to retrieve. "
                 "Please select from 'running', 'candidate', 'startup', or 'all'."
             )
 
@@ -679,20 +679,23 @@ class AOSCXDriver(NetworkDriver):
         startup_config = ""
         candidate_config = ""
 
-        with _device_cli_lock:
-            if self.optional_args.get("use_cli"):
-                if retrieve in ("running", "startup", "all"):
-                    running_config = self._get_configuration("running-config")
-                if retrieve in ("startup", "all"):
-                    startup_config = self._get_configuration("startup-config")
-            else:
-                cfg = Configuration(self.session)
-                if retrieve in ("running", "startup", "all"):
-                    raw = cfg.get_full_config()
-                    running_config = "show running-config\n" + raw
-                if retrieve in ("startup", "all"):
-                    raw = cfg.get_full_config(config_name="startup-config")
-                    startup_config = "show startup-config\n" + raw
+        if self.optional_args.get("use_cli"):
+            self.device.send_command("no page", strip_prompt=False, strip_command=False)
+
+            if retrieve in ("running", "all"):
+                running_config = self._get_configuration("show running-config")
+            if retrieve in ("startup", "all"):
+                startup_config = self._get_configuration("show startup-config")
+
+        else:
+            # REST API
+            cfg = Configuration(self.session)
+            if retrieve in ("running", "all"):
+                raw = cfg.get_full_config()
+                running_config = "show running-config\n" + raw
+            if retrieve in ("startup", "all"):
+                raw = cfg.get_full_config(config_name="startup-config")
+                startup_config = "show startup-config\n" + raw
 
         return {
             "running": running_config,
@@ -952,19 +955,16 @@ class AOSCXDriver(NetworkDriver):
 
     #     return associations_dict
 
-    def _get_configuration(self, checkpoint="running-config"):
+    def _get_configuration(self, command: str) -> str:
         """
         Using SSH get `show running-config` or `show startup-config`,
         disable paging and echo from command/prompts.
         """
-        self.device.clear_buffer()
-        self.device.send_command_timing("no page")
-
         prompt = self.device.find_prompt().strip()
         prompt_re = re.escape(prompt)
 
         return self.device.send_command(
-            f"show {checkpoint}",
+            command,
             expect_string=prompt_re,
             delay_factor=2,
             strip_prompt=True,
