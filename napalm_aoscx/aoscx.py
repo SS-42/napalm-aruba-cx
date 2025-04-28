@@ -675,11 +675,11 @@ class AOSCXDriver(NetworkDriver):
                 "Please select from 'running', 'candidate', 'startup', or 'all'."
             )
 
-        with _device_cli_lock:
-            running_config = ""
-            startup_config = ""
-            candidate_config = ""
+        running_config = ""
+        startup_config = ""
+        candidate_config = ""
 
+        with _device_cli_lock:
             if self.optional_args.get("use_cli"):
                 if retrieve in ("running", "startup", "all"):
                     running_config = self._get_configuration("running-config")
@@ -688,9 +688,11 @@ class AOSCXDriver(NetworkDriver):
             else:
                 cfg = Configuration(self.session)
                 if retrieve in ("running", "startup", "all"):
-                    running_config = cfg.get_full_config()
+                    raw = cfg.get_full_config()
+                    running_config = "show running-config\n" + raw
                 if retrieve in ("startup", "all"):
-                    startup_config = cfg.get_full_config(config_name="startup-config")
+                    raw = cfg.get_full_config(config_name="startup-config")
+                    startup_config = "show startup-config\n" + raw
 
         return {
             "running": running_config,
@@ -950,27 +952,26 @@ class AOSCXDriver(NetworkDriver):
 
     #     return associations_dict
 
-    def _get_configuration(self, checkpoint="running-config", params={}, **kwargs):
-        if self.optional_args.get("use_cli"):
-            self.device.clear_buffer()
-            prompt = self.device.find_prompt().strip()
-            prompt_re = re.escape(prompt)
-            return self.device.send_command(
-                f"show {checkpoint}",
-                expect_string=prompt_re,
-                delay_factor=2,
-                strip_prompt=True,
-                strip_command=True,
-                cmd_verify=False,
-                read_timeout=self.timeout,
-            )
-        cfg = Configuration(self.session)
-        if checkpoint == "running-config":
-            return cfg.get_full_config()
-        elif checkpoint == "startup-config":
-            return cfg.get_full_config(config_name="startup-config")
-        else:
-            raise ValueError(f"Unsupported checkpoint {checkpoint}")
+    def _get_configuration(self, checkpoint="running-config"):
+        """
+        Using SSH get `show running-config` or `show startup-config`,
+        disable paging and echo from command/prompts.
+        """
+        self.device.clear_buffer()
+        self.device.send_command_timing("no page")
+
+        prompt = self.device.find_prompt().strip()
+        prompt_re = re.escape(prompt)
+
+        return self.device.send_command(
+            f"show {checkpoint}",
+            expect_string=prompt_re,
+            delay_factor=2,
+            strip_prompt=True,
+            strip_command=True,
+            cmd_verify=False,
+            read_timeout=self.timeout,
+        )
 
     def get_vlans(self):
             """
