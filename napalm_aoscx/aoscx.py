@@ -959,9 +959,14 @@ class AOSCXDriver(NetworkDriver):
     def _get_configuration(self, checkpoint="running-config", params={}, **kwargs):
         if self.optional_args['use_cli']:
             with _device_cli_lock:
+                prompt = self.device.find_prompt().strip()
+                prompt_regex = re.escape(prompt)
+
+                self.device.clear_buffer()
+
                 return self.device.send_command(
-                    "show %s" % (checkpoint),
-                    expect_string=r"#",
+                    f"show {checkpoint}",
+                    expect_string=prompt_regex,
                     delay_factor=2,
                     strip_prompt=True,
                     strip_command=True,
@@ -969,6 +974,7 @@ class AOSCXDriver(NetworkDriver):
                     read_timeout=60
                 )
 
+        # REST-ветка остаётся без изменений
         config = Configuration(self.session)
         if checkpoint == "running-config":
             return config.get_full_config()
