@@ -70,8 +70,6 @@ class AOSCXDriver(NetworkDriver):
 
     def __init__(self, hostname, username, password, version=None, timeout=60, optional_args=None):
         """NAPALM Constructor for AOS-CX."""
-        if optional_args is None:
-            optional_args = { 'use_cli': False }
         if version is None:
             version = optional_args.pop('version', '1')
         self.hostname = hostname
@@ -97,8 +95,8 @@ class AOSCXDriver(NetworkDriver):
         """
         Implementation of NAPALM method 'open' to open a connection to the device.
         """
-        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
-        logging.getLogger("netmiko").setLevel(logging.DEBUG)
+        # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
+        # logging.getLogger("netmiko").setLevel(logging.DEBUG)
 
         try:
             self.session = Session(self.hostname, self.version)
@@ -112,28 +110,6 @@ class AOSCXDriver(NetworkDriver):
             # Raised if device not available or HTTPS REST is not enabled
             raise ConnectionException(str(error))
             
-        if self.optional_args['use_cli']:
-            device = {
-                'device_type':"aruba_os",
-                'ip':self.hostname,
-                'port':22,
-                'username':self.username,
-                'password':self.password,
-                'timeout':self.timeout,
-                'conn_timeout':self.timeout,
-                'verbose':False,
-            }
-            # device.update(self.optional_args)
-
-            try:
-                self.device = ConnectHandler(**device)
-                self.device.send_command_timing("no page")
-
-            except Exception:
-                raise ConnectionException(
-                    "Cannot connect to switch via SSH: %s" % (self.hostname)
-                )
-
     def close(self):
         """
         Implementation of NAPALM method 'close'. Closes the connection to the device and does
@@ -372,7 +348,7 @@ class AOSCXDriver(NetworkDriver):
     def get_lldp_neighbors_detail(self, interface=""):
         """
         Implementation of NAPALM method get_lldp_neighbors_detail with URL-decoding,
-        slug mapping и добавлением display-name ключа для front-end.
+        slug mapping, display-name key for front-end.
         """
         import logging
         # Fetch raw LLDP data
@@ -712,27 +688,9 @@ class AOSCXDriver(NetworkDriver):
     #     """
     #     return self._get_ntp_associations(**self.session_info)
 
-    def _get_configuration(self, command: str) -> str:
-        """
-        Using SSH get `show running-config` or `show startup-config`,
-        disable paging and echo from command/prompts.
-        """
-        base = self.device.base_prompt  # device name
-        prompt_re = re.escape(base) + r"[#>]\s*$"
-
-        return self.device.send_command(
-            command,
-            expect_string=prompt_re,
-            delay_factor=2,
-            strip_prompt=True,
-            strip_command=True,
-            cmd_verify=False,
-            read_timeout=self.timeout,
-        )
-
     def get_config(self, retrieve="all", full=False, sanitized=False):
         """
-        Return the configuration via CLI или REST.
+        Return the configuration via CLI or REST.
         :param retrieve: "running", "startup", "candidate" or "all"
         """
         if retrieve not in ("running", "startup", "candidate", "all"):
@@ -745,33 +703,25 @@ class AOSCXDriver(NetworkDriver):
         startup_config = ""
         candidate_config = ""
 
-        if self.optional_args.get("use_cli"):
-            self.device.send_command("no page", strip_prompt=False, strip_command=False)
-            if retrieve in ("running", "all"):
-                running_config = self._get_configuration("show running-config")
-            if retrieve in ("startup", "all"):
-                pass
+        headers = {"Accept": "text/plain"}
 
-        else:
-            headers = {"Accept": "text/plain"}
+        if retrieve in ("running", "all"):
+            url = f"{self.base_url}configs/running-config"
+            resp = self.session.s.get(url, headers=headers, verify=self.verify_ssl)
+            if not resp.ok:
+                raise MergeConfigException(
+                    f"Running-config fetch failed: {resp.status_code} {resp.text}"
+                )
+            running_config = resp.text
 
-            if retrieve in ("running", "all"):
-                url = f"{self.base_url}configs/running-config"
-                resp = self.session.s.get(url, headers=headers, verify=self.verify_ssl)
-                if not resp.ok:
-                    raise MergeConfigException(
-                        f"Running-config fetch failed: {resp.status_code} {resp.text}"
-                    )
-                running_config = resp.text
-
-            if retrieve in ("startup", "all"):
-                url = f"{self.base_url}configs/startup-config"
-                resp = self.session.s.get(url, headers=headers, verify=self.verify_ssl)
-                if not resp.ok:
-                    raise MergeConfigException(
-                        f"Startup-config fetch failed: {resp.status_code} {resp.text}"
-                    )
-                startup_config = resp.text
+        if retrieve in ("startup", "all"):
+            url = f"{self.base_url}configs/startup-config"
+            resp = self.session.s.get(url, headers=headers, verify=self.verify_ssl)
+            if not resp.ok:
+                raise MergeConfigException(
+                    f"Startup-config fetch failed: {resp.status_code} {resp.text}"
+                )
+            startup_config = resp.text
 
         return {
             "running": running_config,
@@ -935,10 +885,10 @@ class AOSCXDriver(NetworkDriver):
         :param params: Dictionary of optional parameters for the GET request
         :param kwargs:
             keyword s: requests.session object with loaded cookie jar
-            keyword url: Base REST API URL (например https://10.0.0.1/rest/v10.09/)
-        :return: List of dict’ов вида {
+            keyword url: Base REST API URL (example https://10.0.0.1/rest/v10.09/)
+        :return: List of dict {
                     'location': str,
-                    'temperature': int,   # в миллиградусах
+                    'temperature': int,
                     'status': str         # e.g. 'normal', 'critical', 'emergency'
                 }
         """
