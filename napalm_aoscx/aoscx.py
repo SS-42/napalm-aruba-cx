@@ -468,12 +468,21 @@ class AOSCXDriver(NetworkDriver):
         """
         fan_details = self._get_fan_info(**self.session_info)
         fan_dict = {}
-        for fan in fan_details:
-            new_dict = {fan['name']: fan['status'] == 'ok'}
-            fan_dict.update(new_dict)
+
+        if isinstance(fan_details, dict):
+            for name, details in fan_details.items():
+                if isinstance(details, dict) and 'status' in details:
+                    fan_dict[name] = (details['status'] == 'ok')
+                else:
+                    fan_dict[name] = bool(details)
+        else:
+            for fan in fan_details:
+                new_dict = {fan['name']: fan['status'] == 'ok'}
+                fan_dict.update(new_dict)
 
         temp_details = self._get_temperature(**self.session_info)
         temp_dict = {}
+
         if isinstance(temp_details, dict):
             for location, sensor in temp_details.items():
                 temp_dict[location] = {
@@ -494,19 +503,35 @@ class AOSCXDriver(NetworkDriver):
 
         psu_details = self._get_power_supplies(**self.session_info)
         psu_dict = {}
-        for psu in psu_details:
-            new_dict = {
-                psu['name']: {
-                    'status':   psu['status'] == 'ok',
-                    'capacity': float(psu['characteristics']['maximum_power']),
+
+        if isinstance(psu_details, dict):
+            for name, specs in psu_details.items():
+                if isinstance(specs, dict):
+                    status = specs.get('status') == 'ok'
+                    capacity = float(specs.get('characteristics', {}).get('maximum_power', 0))
+                else:
+                    status = bool(specs)
+                    capacity = 0.0
+                psu_dict[name] = {
+                    'status':   status,
+                    'capacity': capacity,
                     'output':   'N/A'
                 }
-            }
-            psu_dict.update(new_dict)
+        else:
+            for psu in psu_details:
+                new_dict = {
+                    psu['name']: {
+                        'status':   psu['status'] == 'ok',
+                        'capacity': float(psu['characteristics']['maximum_power']),
+                        'output':   'N/A'
+                    }
+                }
+                psu_dict.update(new_dict)
 
         resources_details = self._get_resource_utilization(**self.session_info)
         cpu_dict = {}
         mem_dict = {}
+
         if isinstance(resources_details, dict):
             cpu_dict = {'%usage': resources_details.get('cpu')}
             mem_dict = {
