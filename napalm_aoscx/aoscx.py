@@ -474,7 +474,6 @@ class AOSCXDriver(NetworkDriver):
 
         temp_details = self._get_temperature(**self.session_info)
         temp_dict = {}
-        # Если возвращается dict {location: {...}}, обходим его парами
         if isinstance(temp_details, dict):
             for location, sensor in temp_details.items():
                 temp_dict[location] = {
@@ -483,7 +482,6 @@ class AOSCXDriver(NetworkDriver):
                     'is_critical': sensor['status'] == 'emergency'
                 }
         else:
-            # Обычный список словарей
             for sensor in temp_details:
                 new_dict = {
                     sensor['location']: {
@@ -509,7 +507,6 @@ class AOSCXDriver(NetworkDriver):
         resources_details = self._get_resource_utilization(**self.session_info)
         cpu_dict = {}
         mem_dict = {}
-        # Если возвращается dict {'cpu': X, 'memory': Y}
         if isinstance(resources_details, dict):
             cpu_dict = {'%usage': resources_details.get('cpu')}
             mem_dict = {
@@ -517,7 +514,6 @@ class AOSCXDriver(NetworkDriver):
                 'used_ram':      resources_details.get('memory')
             }
         else:
-            # Если список, оставляем старую логику
             for mm in resources_details:
                 new_dict = {
                     mm['name']: {
