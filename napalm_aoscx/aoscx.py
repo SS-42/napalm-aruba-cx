@@ -693,9 +693,11 @@ class AOSCXDriver(NetworkDriver):
             if retrieve in ("running", "all"):
                 raw = cfg.get_full_config()
                 running_config = self._format_config(raw)
+                running_config = raw
             if retrieve in ("startup", "all"):
                 raw = cfg.get_full_config(config_name="startup-config")
                 startup_config = self._format_config(raw)
+                startup_config = raw
 
         return {
             "running": running_config,
