@@ -371,8 +371,7 @@ class AOSCXDriver(NetworkDriver):
 
     def get_lldp_neighbors_detail(self, interface=""):
         """
-        Implementation of NAPALM method get_lldp_neighbors_detail.
-        Adds debug logging to trace LLDP data retrieval and processing.
+        Implementation of NAPALM method get_lldp_neighbors_detail with URL-decoding of interface names.
         :param interface: Alphanumeric Interface name (e.g. 1/1/1)
         :return: Returns a detailed view of the LLDP neighbors as a dictionary
         """
@@ -386,27 +385,43 @@ class AOSCXDriver(NetworkDriver):
         except Exception as e:
             logging.error("Error fetching LLDP facts: %s", e, exc_info=True)
             return {}
-        
-        # Determine which interfaces to process
+
+        # Import unquote for URL-decoding
+        try:
+            from urllib.parse import unquote
+        except ImportError:
+            def unquote(x): return x
+
+        # Build mapping of decoded interface names to raw URIs
+        decoded_map = {unquote(raw): raw for raw in raw_lldp.keys()}
+        logging.debug("Decoded interface map: %s", decoded_map)
+
+        # Determine which raw keys to process
         if interface:
-            lldp_interfaces = [interface]
+            raw_keys = [decoded_map.get(interface)] if interface in decoded_map else []
+            if not raw_keys:
+                logging.warning("Requested interface %s not found in LLDP facts", interface)
+                return {}
         else:
-            lldp_interfaces = list(raw_lldp.keys())
-        logging.debug("Interfaces to process: %s", lldp_interfaces)
-        
+            raw_keys = list(raw_lldp.keys())
+
+        logging.debug("Raw interface URIs to process: %s", raw_keys)
+
         lldp_details_return = {}
-        for single_interface in lldp_interfaces:
-            logging.debug("Processing interface: %s", single_interface)
-            lldp_details_return.setdefault(single_interface, [])
-            details = raw_lldp.get(single_interface, {})
+        for raw_key in raw_keys:
+            decoded_intf = unquote(raw_key)
+            logging.debug("Processing interface: %s (raw: %s)", decoded_intf, raw_key)
+            lldp_details_return.setdefault(decoded_intf, [])
+            interface_details = raw_lldp.get(raw_key, {})
+
             # Iterate over neighbors
-            for nbr_key, nbr_data in details.items():
+            for nbr_key, nbr_data in interface_details.items():
                 ni = nbr_data.get('neighbor_info', {})
-                logging.debug("Neighbor data for %s: %s", single_interface, nbr_data)
+                logging.debug("Neighbor data for %s: %s", decoded_intf, nbr_data)
                 caps_avail = ''.join(x.lower() for x in ni.get('chassis_capability_available', []))
                 caps_enabled = ''.join(x.lower() for x in ni.get('chassis_capability_enabled', []))
                 entry = {
-                    'parent_interface': single_interface,
+                    'parent_interface': decoded_intf,
                     'remote_chassis_id': nbr_data.get('chassis_id', ''),
                     'remote_system_name': ni.get('chassis_name', ''),
                     'remote_port': nbr_data.get('port_id', ''),
@@ -416,8 +431,8 @@ class AOSCXDriver(NetworkDriver):
                     'remote_system_enable_capab': caps_enabled
                 }
                 logging.debug("Appending LLDP detail entry: %s", entry)
-                lldp_details_return[single_interface].append(entry)
-        
+                lldp_details_return[decoded_intf].append(entry)
+
         logging.debug("Final LLDP details return: %s", lldp_details_return)
         return lldp_details_return
 
