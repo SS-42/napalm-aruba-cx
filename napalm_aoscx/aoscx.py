@@ -372,70 +372,53 @@ class AOSCXDriver(NetworkDriver):
     def get_lldp_neighbors_detail(self, interface=""):
         """
         Implementation of NAPALM method get_lldp_neighbors_detail.
+        Adds debug logging to trace LLDP data retrieval and processing.
         :param interface: Alphanumeric Interface name (e.g. 1/1/1)
         :return: Returns a detailed view of the LLDP neighbors as a dictionary
-        containing lists of dictionaries for each interface.
-
-        Empty entries are returned as an empty string (e.g. '') or list where applicable.
-
-        Inner dictionaries contain fields:
-
-            * parent_interface (string)
-            * remote_port (string)
-            * remote_port_description (string)
-            * remote_chassis_id (string)
-            * remote_system_name (string)
-            * remote_system_description (string)
-            * remote_system_capab (list) with any of these values
-                * other
-                * repeater
-                * bridge
-                * wlan-access-point
-                * router
-                * telephone
-                * docsis-cable-device
-                * station
-            * remote_system_enabled_capab (list)
-
         """
-        lldp_interfaces = []
-        lldp_details_return = {}
+        # Debug: start of the method
+        logging.debug("get_lldp_neighbors_detail called for interface: %s", interface)
+        
+        # Fetch raw LLDP facts with error handling
+        try:
+            raw_lldp = LLDPNeighbor.get_facts(self.session)
+            logging.debug("LLDPNeighbor.get_facts returned: %s", raw_lldp)
+        except Exception as e:
+            logging.error("Error fetching LLDP facts: %s", e, exc_info=True)
+            return {}
+        
+        # Determine which interfaces to process
         if interface:
-            lldp_interfaces_list = LLDPNeighbor.get_facts(self.session)
-            lldp_interfaces.append(interface)
+            lldp_interfaces = [interface]
         else:
-            lldp_interfaces_list = LLDPNeighbor.get_facts(self.session)
-            for interface_uri in lldp_interfaces_list:
-                interface_name = interface_uri
-                
-                lldp_interfaces.append(interface_name)
-
+            lldp_interfaces = list(raw_lldp.keys())
+        logging.debug("Interfaces to process: %s", lldp_interfaces)
+        
+        lldp_details_return = {}
         for single_interface in lldp_interfaces:
-            if single_interface not in lldp_details_return.keys():
-                lldp_details_return[single_interface] = []
-
-            interface_details = lldp_interfaces_list[single_interface]
-            
-            # Iterate over the nested dictionary to get the hostname and port
-            for neighbor in interface_details:
-                remote_capabilities = ''.join(
-                    [x.lower() for x in interface_details[neighbor]['neighbor_info']['chassis_capability_available']])
-                remote_enabled = ''.join(
-                    [x.lower() for x in interface_details[neighbor]['neighbor_info']['chassis_capability_enabled']])
-                lldp_details_return[single_interface].append(
-                    {
-                        'parent_interface': single_interface,
-                        'remote_chassis_id': interface_details[neighbor]['chassis_id'],
-                        'remote_system_name': interface_details[neighbor]['neighbor_info']['chassis_name'],
-                        'remote_port': interface_details[neighbor]['port_id'],
-                        'remote_port_description':
-                            interface_details[neighbor]['neighbor_info']['port_description'],
-                        'remote_system_description':
-                            interface_details[neighbor]['neighbor_info']['chassis_description'],
-                        'remote_system_capab': remote_capabilities,
-                        'remote_system_enable_capab':  remote_enabled
-                        }
-                )
+            logging.debug("Processing interface: %s", single_interface)
+            lldp_details_return.setdefault(single_interface, [])
+            details = raw_lldp.get(single_interface, {})
+            # Iterate over neighbors
+            for nbr_key, nbr_data in details.items():
+                ni = nbr_data.get('neighbor_info', {})
+                logging.debug("Neighbor data for %s: %s", single_interface, nbr_data)
+                caps_avail = ''.join(x.lower() for x in ni.get('chassis_capability_available', []))
+                caps_enabled = ''.join(x.lower() for x in ni.get('chassis_capability_enabled', []))
+                entry = {
+                    'parent_interface': single_interface,
+                    'remote_chassis_id': nbr_data.get('chassis_id', ''),
+                    'remote_system_name': ni.get('chassis_name', ''),
+                    'remote_port': nbr_data.get('port_id', ''),
+                    'remote_port_description': ni.get('port_description', ''),
+                    'remote_system_description': ni.get('chassis_description', ''),
+                    'remote_system_capab': caps_avail,
+                    'remote_system_enable_capab': caps_enabled
+                }
+                logging.debug("Appending LLDP detail entry: %s", entry)
+                lldp_details_return[single_interface].append(entry)
+        
+        logging.debug("Final LLDP details return: %s", lldp_details_return)
         return lldp_details_return
 
     def get_environment(self):
