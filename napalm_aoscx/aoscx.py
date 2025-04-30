@@ -935,23 +935,34 @@ class AOSCXDriver(NetworkDriver):
         :param params: Dictionary of optional parameters for the GET request
         :param kwargs:
             keyword s: requests.session object with loaded cookie jar
-            keyword url: URL in main() function
-        :return: Dictionary containing temperature information
+            keyword url: Base REST API URL (например https://10.0.0.1/rest/v10.09/)
+        :return: List of dict’ов вида {
+                    'location': str,
+                    'temperature': int,   # в миллиградусах
+                    'status': str         # e.g. 'normal', 'critical', 'emergency'
+                }
         """
 
-        target_url = kwargs["url"] + "system/subsystems/*/*/temp_sensors/*"
+        target_url = kwargs["url"] + "system/subsystems"
+        query = {"attributes": "temp_sensors", "depth": 2}
+        response = kwargs["s"].get(target_url, params=query, verify=False)
 
-        response = kwargs["s"].get(target_url, params=params, verify=False)
+        if not response.ok:
+            logging.warning(
+                "FAIL: Getting temperature sensors failed with status code %d: %s",
+                response.status_code, response.text
+            )
+            return []
 
-        if not common_ops._response_ok(response, "GET"):
-            logging.warning("FAIL: Getting dictionary of temperature information failed with status code %d: %s"
-                            % (response.status_code, response.text))
-            temp_info_dict = {}
-        else:
-            logging.info("SUCCESS: Getting dictionary of temperature information succeeded")
-            temp_info_dict = response.json()
+        data = response.json()
+        subsystems = data.get("subsystems", [])
+        temp_info_list = []
+        for subsystem in subsystems:
+            sensors = subsystem.get("temp_sensors") or []
+            if isinstance(sensors, list):
+                temp_info_list.extend(sensors)
 
-        return temp_info_dict
+        return temp_info_list
 
     def _get_power_supplies(self, params={}, **kwargs):
         """
