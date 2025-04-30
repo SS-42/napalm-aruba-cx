@@ -371,8 +371,8 @@ class AOSCXDriver(NetworkDriver):
 
     def get_lldp_neighbors_detail(self, interface=""):
         """
-        Implementation of NAPALM method get_lldp_neighbors_detail with URL-decoding and slug mapping.
-        Returns keys both as decoded interface names and slugs to match front-end lookups.
+        Implementation of NAPALM method get_lldp_neighbors_detail with URL-decoding,
+        slug mapping и добавлением display-name ключа для front-end.
         """
         import logging
         # Fetch raw LLDP data
@@ -431,10 +431,17 @@ class AOSCXDriver(NetworkDriver):
                 }
                 entries.append(entry)
 
-            # Assign entries under both keys
+            # Assign entries under decoded name and slug
             lldp_details_return[decoded_intf] = entries
             lldp_details_return[slug_intf] = entries
-            logging.debug("Assigned LLDP entries for keys '%s' and '%s': %s", decoded_intf, slug_intf, entries)
+            # *** New: Assign under the display name used as <tr id="…"> in the template
+            display_name = f"Int {decoded_intf}"
+            lldp_details_return[display_name] = entries
+
+            logging.debug(
+                "Assigned LLDP entries for keys '%s', '%s', and display '%s': %s",
+                decoded_intf, slug_intf, display_name, entries
+            )
 
         logging.debug("Final LLDP details return keys: %s", list(lldp_details_return.keys()))
         return lldp_details_return
