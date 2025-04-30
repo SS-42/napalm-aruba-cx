@@ -451,20 +451,20 @@ class AOSCXDriver(NetworkDriver):
         Implementation of NAPALM method get_environment()
         :return: Returns a dictionary where:
             * fans is a dictionary of dictionaries where the key is the location and the values:
-                 * status (True/False) - True if it's ok, false if it's broken
+                * status (True/False) - True if it's ok, false if it's broken
             * temperature is a dict of dictionaries where the key is the location and the values:
-                 * temperature (float) - Temperature in celsius the sensor is reporting.
-                 * is_alert (True/False) - True if the temperature is above the alert threshold
-                 * is_critical (True/False) - True if the temp is above the critical threshold
+                * temperature (float) - Temperature in celsius the sensor is reporting.
+                * is_alert (True/False) - True if the temperature is above the alert threshold
+                * is_critical (True/False) - True if the temp is above the critical threshold
             * power is a dictionary of dictionaries where the key is the PSU id and the values:
-                 * status (True/False) - True if it's ok, false if it's broken
-                 * capacity (float) - Capacity in W that the power supply can support
-                 * output (float) - Watts drawn by the system (Not Supported)
+                * status (True/False) - True if it's ok, false if it's broken
+                * capacity (float) - Capacity in W that the power supply can support
+                * output (float) - Watts drawn by the system (Not Supported)
             * cpu is a dictionary of dictionaries where the key is the ID and the values:
-                 * %usage - Current percent usage of the device
+                * %usage - Current percent usage of the device
             * memory is a dictionary with:
-                 * available_ram (int) - Total amount of RAM installed in the device (Not Supported)
-                 * used_ram (int) - RAM in use in the device
+                * available_ram (int) - Total amount of RAM installed in the device (Not Supported)
+                * used_ram (int) - RAM in use in the device
         """
         fan_details = self._get_fan_info(**self.session_info)
         fan_dict = {}
@@ -474,24 +474,34 @@ class AOSCXDriver(NetworkDriver):
 
         temp_details = self._get_temperature(**self.session_info)
         temp_dict = {}
-        for sensor in temp_details:
-            new_dict = {
-                sensor['location']: {
-                    'temperature': float(sensor['temperature']/1000),
-                    'is_alert': sensor['status'] == 'critical',
+        # Если возвращается dict {location: {...}}, обходим его парами
+        if isinstance(temp_details, dict):
+            for location, sensor in temp_details.items():
+                temp_dict[location] = {
+                    'temperature': float(sensor['temperature'] / 1000),
+                    'is_alert':    sensor['status'] == 'critical',
                     'is_critical': sensor['status'] == 'emergency'
                 }
-            }
-            temp_dict.update(new_dict)
+        else:
+            # Обычный список словарей
+            for sensor in temp_details:
+                new_dict = {
+                    sensor['location']: {
+                        'temperature': float(sensor['temperature'] / 1000),
+                        'is_alert':    sensor['status'] == 'critical',
+                        'is_critical': sensor['status'] == 'emergency'
+                    }
+                }
+                temp_dict.update(new_dict)
 
         psu_details = self._get_power_supplies(**self.session_info)
         psu_dict = {}
         for psu in psu_details:
             new_dict = {
                 psu['name']: {
-                    'status': psu['status'] == 'ok',
+                    'status':   psu['status'] == 'ok',
                     'capacity': float(psu['characteristics']['maximum_power']),
-                    'output': 'N/A'
+                    'output':   'N/A'
                 }
             }
             psu_dict.update(new_dict)
@@ -499,24 +509,33 @@ class AOSCXDriver(NetworkDriver):
         resources_details = self._get_resource_utilization(**self.session_info)
         cpu_dict = {}
         mem_dict = {}
-        for mm in resources_details:
-            new_dict = {
-                mm['name']: {
-                    '%usage': mm['resource_utilization']['cpu']
-                }
-            }
-            cpu_dict.update(new_dict)
+        # Если возвращается dict {'cpu': X, 'memory': Y}
+        if isinstance(resources_details, dict):
+            cpu_dict = {'%usage': resources_details.get('cpu')}
             mem_dict = {
                 'available_ram': 'N/A',
-                'used_ram': mm['resource_utilization']['memory']
+                'used_ram':      resources_details.get('memory')
             }
+        else:
+            # Если список, оставляем старую логику
+            for mm in resources_details:
+                new_dict = {
+                    mm['name']: {
+                        '%usage': mm['resource_utilization']['cpu']
+                    }
+                }
+                cpu_dict.update(new_dict)
+                mem_dict = {
+                    'available_ram': 'N/A',
+                    'used_ram':      mm['resource_utilization']['memory']
+                }
 
         environment = {
-            'fans': fan_dict,
+            'fans':        fan_dict,
             'temperature': temp_dict,
-            'power': psu_dict,
-            'cpu': cpu_dict,
-            'memory': mem_dict
+            'power':       psu_dict,
+            'cpu':         cpu_dict,
+            'memory':      mem_dict
         }
         return environment
 
