@@ -371,14 +371,11 @@ class AOSCXDriver(NetworkDriver):
 
     def get_lldp_neighbors_detail(self, interface=""):
         """
-        Implementation of NAPALM method get_lldp_neighbors_detail with URL-decoding of interface names.
-        :param interface: Alphanumeric Interface name (e.g. 1/1/1)
-        :return: Returns a detailed view of the LLDP neighbors as a dictionary
+        Implementation of NAPALM method get_lldp_neighbors_detail with URL-decoding and slug mapping.
+        Returns keys both as decoded interface names and slugs to match front-end lookups.
         """
-        # Debug: start of the method
-        logging.debug("get_lldp_neighbors_detail called for interface: %s", interface)
-        
-        # Fetch raw LLDP facts with error handling
+        import logging
+        # Fetch raw LLDP data
         try:
             raw_lldp = LLDPNeighbor.get_facts(self.session)
             logging.debug("LLDPNeighbor.get_facts returned: %s", raw_lldp)
@@ -386,38 +383,40 @@ class AOSCXDriver(NetworkDriver):
             logging.error("Error fetching LLDP facts: %s", e, exc_info=True)
             return {}
 
-        # Import unquote for URL-decoding
+        # URL-decode interface URIs
         try:
             from urllib.parse import unquote
         except ImportError:
             def unquote(x): return x
 
-        # Build mapping of decoded interface names to raw URIs
-        decoded_map = {unquote(raw): raw for raw in raw_lldp.keys()}
-        logging.debug("Decoded interface map: %s", decoded_map)
+        # Prepare slugify for slugs
+        try:
+            from django.utils.text import slugify
+        except ImportError:
+            import re
+            def slugify(x): return re.sub(r'[^\w]+', '-', x).strip('-').lower()
 
-        # Determine which raw keys to process
+        # Determine which raw keys to process based on requested interface
+        decoded_map = {unquote(raw): raw for raw in raw_lldp.keys()}
         if interface:
-            raw_keys = [decoded_map.get(interface)] if interface in decoded_map else []
-            if not raw_keys:
+            if interface not in decoded_map:
                 logging.warning("Requested interface %s not found in LLDP facts", interface)
                 return {}
+            raw_keys = [decoded_map[interface]]
         else:
             raw_keys = list(raw_lldp.keys())
-
         logging.debug("Raw interface URIs to process: %s", raw_keys)
 
         lldp_details_return = {}
         for raw_key in raw_keys:
             decoded_intf = unquote(raw_key)
-            logging.debug("Processing interface: %s (raw: %s)", decoded_intf, raw_key)
-            lldp_details_return.setdefault(decoded_intf, [])
+            slug_intf = slugify(decoded_intf)
+            # Initialize entries list
+            entries = []
             interface_details = raw_lldp.get(raw_key, {})
 
-            # Iterate over neighbors
             for nbr_key, nbr_data in interface_details.items():
                 ni = nbr_data.get('neighbor_info', {})
-                logging.debug("Neighbor data for %s: %s", decoded_intf, nbr_data)
                 caps_avail = ''.join(x.lower() for x in ni.get('chassis_capability_available', []))
                 caps_enabled = ''.join(x.lower() for x in ni.get('chassis_capability_enabled', []))
                 entry = {
@@ -430,10 +429,14 @@ class AOSCXDriver(NetworkDriver):
                     'remote_system_capab': caps_avail,
                     'remote_system_enable_capab': caps_enabled
                 }
-                logging.debug("Appending LLDP detail entry: %s", entry)
-                lldp_details_return[decoded_intf].append(entry)
+                entries.append(entry)
 
-        logging.debug("Final LLDP details return: %s", lldp_details_return)
+            # Assign entries under both keys
+            lldp_details_return[decoded_intf] = entries
+            lldp_details_return[slug_intf] = entries
+            logging.debug("Assigned LLDP entries for keys '%s' and '%s': %s", decoded_intf, slug_intf, entries)
+
+        logging.debug("Final LLDP details return keys: %s", list(lldp_details_return.keys()))
         return lldp_details_return
 
     def get_environment(self):
